@@ -10,37 +10,300 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// User model with currency and claim system
 model User {
-  id        Int     @id @default(autoincrement())
-  email     String  @unique
-  username  String  @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                    String                @id @default(cuid())
+  email                 String                @unique
+  username              String                @unique
+  passwordHash          String
+  firstName             String?
+  lastName              String?
+  profileImageUrl       String?
+  bio                   String?
+  
+  // Currency and claim system
+  virtualBalance        Float                 @default(0)
+  realBalance           Float                 @default(0)
+  currency              Currency              @default(USD)
+  claimsRemaining       Int                   @default(0)
+  claimResetDate        DateTime?
+  
+  // Relationships
+  inventory             UserInventory[]
+  transactions          Transaction[]
+  purchasedBoxes        Box[]
+  purchasedPacks        Pack[]
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  lastActiveAt          DateTime              @default(now())
 
-  cards     Card[]
-  trades    Trade[]
+  @@index([email])
+  @@index([username])
 }
 
+// Currency enumeration
+enum Currency {
+  USD
+  EUR
+  GBP
+  JPY
+  CAD
+  AUD
+}
+
+// CardSet model - represents a collection/series of cards
+model CardSet {
+  id                    String                @id @default(cuid())
+  name                  String                @unique
+  description           String?
+  releaseDate           DateTime
+  imageUrl              String?
+  series                String?
+  totalCards            Int
+  
+  // Relationships
+  boxes                 Box[]
+  cards                 Card[]
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([name])
+  @@index([series])
+}
+
+// Box model - premium collection container
+model Box {
+  id                    String                @id @default(cuid())
+  name                  String
+  description           String?
+  price                 Float
+  currency              Currency              @default(USD)
+  imageUrl              String?
+  quantity              Int                   @default(0)
+  
+  // Relationships
+  cardSetId             String
+  cardSet               CardSet               @relation(fields: [cardSetId], references: [id], onDelete: Cascade)
+  packs                 Pack[]
+  purchasedByUsers      User[]
+  transactions          Transaction[]        @relation("BoxTransaction")
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([cardSetId])
+  @@index([name])
+}
+
+// Pack model - regular product packaging
+model Pack {
+  id                    String                @id @default(cuid())
+  name                  String
+  description           String?
+  price                 Float
+  currency              Currency              @default(USD)
+  imageUrl              String?
+  quantity              Int                   @default(0)
+  cardsPerPack          Int                   @default(5)
+  
+  // Relationships
+  boxId                 String?
+  box                   Box?                  @relation(fields: [boxId], references: [id], onDelete: SetNull)
+  cardSetId             String
+  cardSet               CardSet               @relation(fields: [cardSetId], references: [id], onDelete: Cascade)
+  purchasedByUsers      User[]
+  transactions          Transaction[]        @relation("PackTransaction")
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@index([boxId])
+  @@index([cardSetId])
+  @@index([name])
+}
+
+// Card model with real card data
 model Card {
-  id        Int     @id @default(autoincrement())
-  name      String
-  description String?
-  rarity    String  @default("common")
-  imageUrl  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                    String                @id @default(cuid())
+  name                  String
+  cardNumber            String
+  rarity                Rarity
+  cardType              CardType
+  description           String?
+  imageUrl              String
+  imageBackUrl          String?
+  hp                    Int?
+  attackPower           Int?
+  defensePower          Int?
+  
+  // Real card data
+  artist                String?
+  illustratorId         String?
+  printedTotal          Int?
+  cardEdition           CardEdition
+  language              String                @default("en")
+  condition             CardCondition         @default(NEAR_MINT)
+  estimatedValue        Float?
+  
+  // Relationships
+  cardSetId             String
+  cardSet               CardSet               @relation(fields: [cardSetId], references: [id], onDelete: Cascade)
+  inventoryItems        UserInventory[]
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-  userId    Int
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([cardSetId, cardNumber])
+  @@index([cardSetId])
+  @@index([name])
+  @@index([rarity])
+  @@index([cardType])
 }
 
-model Trade {
-  id        Int     @id @default(autoincrement())
-  status    String  @default("pending") // pending, completed, cancelled
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// Rarity enumeration
+enum Rarity {
+  COMMON
+  UNCOMMON
+  RARE
+  ULTRA_RARE
+  SECRET_RARE
+  HOLOGRAPHIC
+  LEGENDARY
+}
 
-  initiatorId Int
-  initiator   User @relation(fields: [initiatorId], references: [id], onDelete: Cascade)
+// Card Type enumeration
+enum CardType {
+  MONSTER
+  SPELL
+  TRAP
+  TRAINER
+  ENERGY
+  SUPPORTER
+  STADIUM
+  ITEM
+  POKEMON
+  PIKACHU
+  CHARIZARD
+  BLASTOISE
+  VENUSAUR
+  OTHER
+}
+
+// Card Edition enumeration
+enum CardEdition {
+  FIRST_EDITION
+  UNLIMITED
+  SHADOWLESS
+  SPECIAL
+}
+
+// Card Condition enumeration
+enum CardCondition {
+  MINT
+  NEAR_MINT
+  EXCELLENT
+  VERY_GOOD
+  GOOD
+  LIGHT_PLAY
+  PLAYED
+  POOR
+}
+
+// UserInventory model - tracks cards owned by users
+model UserInventory {
+  id                    String                @id @default(cuid())
+  userId                String
+  cardId                String
+  quantity              Int                   @default(1)
+  acquisitionDate       DateTime              @default(now())
+  source                InventorySource
+  condition             CardCondition         @default(NEAR_MINT)
+  notes                 String?
+  
+  // Relationships
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card                  Card                  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@unique([userId, cardId])
+  @@index([userId])
+  @@index([cardId])
+}
+
+// Inventory Source enumeration
+enum InventorySource {
+  PURCHASED
+  CLAIMED
+  GIFTED
+  TRADED
+  OPENED_PACK
+  OPENED_BOX
+}
+
+// Transaction model - tracks all purchases and claims
+model Transaction {
+  id                    String                @id @default(cuid())
+  userId                String
+  transactionType       TransactionType
+  status                TransactionStatus     @default(PENDING)
+  amount                Float
+  currency              Currency              @default(USD)
+  paymentMethod         PaymentMethod?
+  description           String?
+  
+  // Relationships
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boxId                 String?
+  box                   Box?                  @relation("BoxTransaction", fields: [boxId], references: [id], onDelete: SetNull)
+  packId                String?
+  pack                  Pack?                 @relation("PackTransaction", fields: [packId], references: [id], onDelete: SetNull)
+  
+  // Metadata
+  createdAt             DateTime              @default(now())
+  completedAt           DateTime?
+  
+  @@index([userId])
+  @@index([transactionType])
+  @@index([status])
+}
+
+// Transaction Type enumeration
+enum TransactionType {
+  PURCHASE_BOX
+  PURCHASE_PACK
+  CLAIM_CARD
+  REFUND
+  BALANCE_ADJUSTMENT
+  GIFT
+}
+
+// Transaction Status enumeration
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+// Payment Method enumeration
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+  BANK_TRANSFER
+  CRYPTOCURRENCY
 }
